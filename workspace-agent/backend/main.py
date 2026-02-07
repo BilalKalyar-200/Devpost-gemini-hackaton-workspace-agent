@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import asyncio
+from contextlib import asynccontextmanager
 
 from config import config
 from connectors.gmail_connector import GmailConnector
@@ -12,28 +12,17 @@ from agent.core import WorkspaceAgent
 from agent.scheduler import AgentScheduler
 from api.routes import router, set_agent
 
-# Create FastAPI app
-app = FastAPI(title="Workspace Agent API")
-
-# CORS middleware for frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Vite default port
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Global instances
 db_manager = None
 agent = None
 scheduler = None
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize agent on startup"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler for startup and shutdown"""
     global db_manager, agent, scheduler
     
+    # STARTUP
     print("\n" + "="*60)
     print("🚀 WORKSPACE AGENT STARTING UP")
     print("="*60 + "\n")
@@ -83,13 +72,25 @@ async def startup_event():
     print("\n" + "="*60)
     print("✅ WORKSPACE AGENT READY!")
     print("="*60 + "\n")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
+    
+    yield  # Server runs here
+    
+    # SHUTDOWN
     if scheduler:
         scheduler.stop()
     print("\n[SHUTDOWN] Agent stopped")
+
+# Create FastAPI app with lifespan
+app = FastAPI(title="Workspace Agent API", lifespan=lifespan)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Include routes
 app.include_router(router, prefix="/api")
