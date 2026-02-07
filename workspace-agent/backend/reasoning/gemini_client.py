@@ -4,7 +4,7 @@ from config import config
 class GeminiClient:
     def __init__(self):
         genai.configure(api_key=config.GEMINI_API_KEY)
-        self.model = genai.GenerativeModel('gemini-pro')
+        self.model = genai.GenerativeModel('gemini-2.5-flash')
         print("[GEMINI] Client initialized")
     
     async def generate(self, prompt: str) -> str:

@@ -26,7 +26,7 @@ class GmailConnector:
                 self.token_file, self.scopes
             )
 
-        # If no valid creds → login
+        # If credentials invalid → login
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
@@ -37,10 +37,14 @@ class GmailConnector:
                 creds = flow.run_local_server(port=0)
 
             # Save token JSON
-            print("Saving token to:", self.token_file) #for fixing some issues i printed path
-            with open(self.token_file, 'w') as token:
+            with open(self.token_file, "w") as token:
                 token.write(creds.to_json())
+
             print("Token saved successfully")
+
+        self.service = build("gmail", "v1", credentials=creds)
+        print("[GMAIL] Authenticated successfully")
+
 
         self.service = build('gmail', 'v1', credentials=creds)
         print("[GMAIL] Authenticated successfully")
