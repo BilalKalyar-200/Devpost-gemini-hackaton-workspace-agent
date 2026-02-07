@@ -1,0 +1,14 @@
+# Secrets
+backend/token.json
+backend/client_secret_346886674449-02k7uefi9m9oikdiga6dmh8frqh84rtt.apps.googleusercontent.com.json
+
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+
+# Env
+.env
+
+#db
+backend/*.db
