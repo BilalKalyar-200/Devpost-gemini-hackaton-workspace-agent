@@ -1,360 +1,476 @@
-🤖 Workspace Agent - Autonomous AI Assistant for Google Workspace
-An intelligent, autonomous AI agent that proactively monitors your Google Workspace (Gmail, Classroom, Calendar) and provides daily insights without you asking. Built for the Google Gemini Devpost Hackathon.
-🎯 What Makes This an "Agent" (Not Just a Chatbot)
-FeatureTraditional ChatbotOur AgentObservationWaits for user input🟢 Actively monitors Gmail, Classroom, CalendarAutonomyReactive only🟢 Runs daily at 6 PM automaticallyMemoryNo persistence🟢 Stores history across days/weeksReasoningSingle-turn Q&A🟢 Multi-step analysis loopsInitiativeUser-driven🟢 Proactively generates reportsTemporal AwarenessNo time context🟢 Understands trends and patterns
-Key Difference: This agent runs even when you're not using it. It observes, thinks, remembers, and acts autonomously.
+# 🤖 Workspace Agent
 
-✨ Features
-🔄 Autonomous Observation Loop
+> An intelligent, autonomous AI assistant that proactively monitors your Google Workspace and provides daily insights without you asking.
 
-Scheduled Execution: Runs every day at 6 PM automatically
-Data Collection: Monitors 3 Google Workspace sources:
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Node](https://img.shields.io/badge/Node-18+-green.svg)](https://nodejs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-teal.svg)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18+-61dafb.svg)](https://reactjs.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-📧 Gmail (unread/important emails)
-📚 Google Classroom (assignments, deadlines)
-📅 Google Calendar (meetings, schedule)
-
-
-
-🧠 AI-Powered Reasoning
-
-Gemini Integration: Analyzes collected data for:
-
-Urgency detection (what needs immediate attention)
-Risk identification (deadline conflicts, missed items)
-Priority sorting (urgent vs. important vs. low priority)
-
-
-Context-Aware: Considers historical patterns and trends
-
-💾 Persistent Memory System
-
-Short-term Memory: Today's observations
-Long-term Memory: Historical EOD summaries
-Episodic Memory: Chat conversation history
-Structured Storage: SQLite database with queryable data
-
-📊 End-of-Day Reports
-
-Automatic Generation: Daily summary without user interaction
-Contextual Insights: Compares with past week's data
-Actionable Recommendations: Specific next steps
-
-💬 Interactive Chat
-
-Natural Language Queries: "What's due this week?"
-Memory Retrieval: Searches across all stored data
-Contextual Responses: Uses full workspace context
-
-🛠️ Tech Stack
-Backend
-
-Python 3.11+
-FastAPI: REST API framework
-APScheduler: Autonomous task scheduling
-SQLAlchemy: Database ORM
-Google API Client: Workspace integration
-Google Gemini API: AI reasoning
-
-Frontend
-
-React 18 with Vite
-React Router: Navigation
-Axios: API communication
-Lucide React: Icons
-
-Database
-
-SQLite: Lightweight persistence
-
-Deployment
-
-Backend: Render / Fly.io
-Frontend: Vercel
-
-
-🚀 Quick Start
-Prerequisites
-
-Python 3.11+
-Node.js 18+
-Google Cloud Account
-Gemini API Key
-
-1. Clone Repository
-bashgit clone https://github.com/your-username/workspace-agent.git
-cd workspace-agent
-2. Backend Setup
-a) Install Dependencies
-bashcd backend
-python -m venv venv
-
-# Windows
-venv\Scripts\activate
-
-# Mac/Linux
-source venv/bin/activate
-
-pip install -r requirements.txt
-b) Google Cloud Setup
-
-Go to Google Cloud Console
-Create a new project: workspace-agent
-Enable APIs:
-
-Gmail API
-Google Classroom API
-Google Calendar API
-
-
-Create OAuth 2.0 credentials:
-
-Application type: Desktop app
-Download as credentials.json
-Place in backend/ folder
-
-
-
-c) Get Gemini API Key
-
-Go to Google AI Studio
-Create API key
-Copy key
-
-d) Configure Environment
-Create backend/.env:
-envGEMINI_API_KEY=your_gemini_api_key_here
-e) Run Backend
-bashpython main.py
-First-time authentication:
-
-Browser will open
-Sign in with Google account
-Allow all permissions
-Token saved to token.json
-
-Backend runs on: http://localhost:8000
-3. Frontend Setup
-bashcd frontend
-npm install
-npm run dev
-```
-
-Frontend runs on: `http://localhost:5173`
+Built for the **Google Gemini Devpost Hackathon** 🚀
 
 ---
 
-## 📁 Project Structure
+## 📖 Table of Contents
+
+- [Overview](#overview)
+- [What Makes This an Agent](#what-makes-this-an-agent)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [API Endpoints](#api-endpoints)
+- [How It Works](#how-it-works)
+- [Use Cases](#use-cases)
+- [Troubleshooting](#troubleshooting)
+- [Future Enhancements](#future-enhancements)
+- [Team](#team)
+- [License](#license)
+
+---
+
+## 🎯 Overview
+
+**Workspace Agent** is not just another chatbot—it's an autonomous AI agent that:
+
+- 📊 **Observes** your Gmail, Google Classroom, and Calendar automatically
+- 🧠 **Reasons** using Google Gemini to detect urgency and risks
+- 💾 **Remembers** everything across days and weeks
+- 📝 **Acts** by generating daily End-of-Day reports at 6 PM
+- 💬 **Responds** to your questions with full context
+
+The key difference? **It runs even when you're not using it.**
+
+---
+
+## 🔥 What Makes This an Agent?
+
+| Feature | Traditional Chatbot | Workspace Agent |
+|---------|---------------------|-----------------|
+| **Observation** | Waits for user input | ✅ Actively monitors Gmail, Classroom, Calendar |
+| **Autonomy** | Reactive only | ✅ Runs daily at 6 PM automatically |
+| **Memory** | No persistence | ✅ Stores history across days/weeks |
+| **Reasoning** | Single-turn Q&A | ✅ Multi-step analysis loops |
+| **Initiative** | User-driven | ✅ Proactively generates reports |
+| **Temporal Awareness** | No time context | ✅ Understands trends and patterns |
+
+**Bottom Line:** This agent observes, thinks, remembers, and acts autonomously—not just when you ask it to.
+
+---
+
+## ✨ Features
+
+### 🔄 Autonomous Operation
+- **Scheduled Execution**: Runs every day at 6 PM without your intervention
+- **Multi-Source Monitoring**: Connects to Gmail, Google Classroom, and Google Calendar
+- **Automatic Reports**: Generates End-of-Day summaries you wake up to
+
+### 🧠 Intelligent Reasoning
+- **Urgency Detection**: Identifies what needs immediate attention
+- **Risk Analysis**: Spots deadline conflicts and missed items
+- **Priority Sorting**: Categorizes tasks as urgent, important, or low priority
+- **Trend Recognition**: Notices patterns across days and weeks
+
+### 💾 Persistent Memory
+- **Short-term Memory**: Today's emails, assignments, and meetings
+- **Long-term Memory**: Historical End-of-Day summaries
+- **Episodic Memory**: Complete chat conversation history
+- **Queryable Storage**: SQLite database for fast retrieval
+
+### 💬 Conversational Interface
+- Ask natural questions: *"What's due this week?"*
+- Get context-aware answers based on your complete workspace
+- Maintains conversation history for follow-up questions
+
+---
+
+## 🛠️ Tech Stack
+
+### Backend
+- **Python 3.11+** - Core language
+- **FastAPI** - REST API framework
+- **APScheduler** - Autonomous task scheduling
+- **SQLAlchemy** - Database ORM
+- **Google API Client** - Workspace integration
+- **Google Gemini API** - AI reasoning engine
+
+### Frontend
+- **React 18** - UI library
+- **Vite** - Build tool
+- **React Router** - Navigation
+- **Axios** - HTTP client
+- **Lucide React** - Icons
+
+### Database
+- **SQLite** - Lightweight local database
+
+---
+
+## 📋 Prerequisites
+
+Before you begin, ensure you have:
+
+- **Python 3.11 or higher** ([Download](https://www.python.org/downloads/))
+- **Node.js 18 or higher** ([Download](https://nodejs.org/))
+- **Git** ([Download](https://git-scm.com/downloads))
+- **Google Cloud Account** (Free tier is sufficient)
+- **Google Gemini API Key** (Free tier available)
+
+---
+
+## 🚀 Installation
+
+### Step 1: Clone the Repository
+```bash
+git clone https://github.com/your-username/workspace-agent.git
+cd workspace-agent
 ```
-workspace-agent/
-├── backend/
-│   ├── agent/
-│   │   ├── core.py              # Main agent loop
-│   │   ├── scheduler.py         # APScheduler setup
-│   │   └── prompts.py           # Gemini prompt templates
-│   ├── connectors/
-│   │   ├── gmail_connector.py   # Gmail API wrapper
-│   │   ├── classroom_connector.py
-│   │   └── calendar_connector.py
-│   ├── reasoning/
-│   │   ├── gemini_client.py     # Gemini API client
-│   │   └── context_builder.py   # Context preparation
-│   ├── memory/
-│   │   ├── db_manager.py        # Database operations
-│   │   ├── models.py            # SQLAlchemy models
-│   │   └── retriever.py         # Memory search
-│   ├── schemas/
-│   │   ├── email.py             # Data models
-│   │   ├── assignment.py
-│   │   └── meeting.py
-│   ├── api/
-│   │   └── routes.py            # FastAPI endpoints
-│   ├── main.py                  # Application entry
-│   ├── config.py                # Configuration
-│   └── requirements.txt
-│
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Dashboard.jsx    # EOD report display
-│   │   │   └── ChatInterface.jsx
-│   │   ├── api/
-│   │   │   └── client.js        # API calls
-│   │   ├── App.jsx
-│   │   └── main.jsx
-│   └── package.json
-│
-└── README.md
 
-🔌 API Endpoints
-Health Check
-httpGET /api/health
-Get Latest EOD Report
-httpGET /api/eod-report
-Response:
-json{
-  "date": "2024-02-07",
-  "content": "Today you had 5 unread emails..."
-}
-Generate Report (Manual Trigger)
-httpPOST /api/eod-report/generate
-Chat with Agent
-httpPOST /api/chat
-Content-Type: application/json
+### Step 2: Backend Setup
 
-{
-  "query": "What assignments are due this week?"
-}
-Get Today's Snapshot
-httpGET /api/snapshot/today
-Get Chat History
-httpGET /api/chat/history
+#### 2.1 Create Virtual Environment
+```bash
+cd backend
 
-🔄 Agent Lifecycle
-Autonomous Cycle (Runs Daily at 6 PM)
-python1. OBSERVE
-   └─ Fetch emails, assignments, meetings from Google APIs
+# Windows
+python -m venv venv
+venv\Scripts\activate
 
-2. STRUCTURE
-   └─ Convert raw data to clean JSON schemas
+# macOS/Linux
+python3 -m venv venv
+source venv/bin/activate
+```
 
-3. REASON
-   └─ Send structured data to Gemini
-   └─ Gemini analyzes urgency, risks, priorities
+#### 2.2 Install Dependencies
+```bash
+pip install -r requirements.txt
+```
 
-4. REMEMBER
-   └─ Store observations + insights in SQLite
+#### 2.3 Set Up Google Cloud
 
-5. ACT
-   └─ Generate End-of-Day summary
-   └─ Store report for user access
-Chat Cycle (User-Initiated)
-python1. RECEIVE QUERY
-   └─ User asks: "What's due this week?"
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project (e.g., `workspace-agent`)
+3. Enable the following APIs:
+   - Gmail API
+   - Google Classroom API
+   - Google Calendar API
+4. Create OAuth 2.0 Credentials:
+   - Navigate to **APIs & Services** → **Credentials**
+   - Click **Create Credentials** → **OAuth client ID**
+   - Choose **Desktop app**
+   - Download credentials as `credentials.json`
+   - Move file to `backend/` directory
 
-2. RETRIEVE CONTEXT
-   └─ Get today's snapshot
-   └─ Search relevant historical data
-   └─ Load recent chat history
+#### 2.4 Get Gemini API Key
 
-3. REASON
-   └─ Build context-aware prompt
-   └─ Send to Gemini
+1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Click **Get API Key**
+3. Create new API key
+4. Copy the key (you'll need it for configuration)
 
-4. RESPOND
-   └─ Return answer to user
-   └─ Store conversation in memory
+### Step 3: Frontend Setup
+```bash
+cd frontend
+npm install
+```
 
-🧪 Testing
-Test Backend
-bash# Test health
-curl http://localhost:8000/api/health
+---
 
-# Trigger EOD report manually
-curl -X POST http://localhost:8000/api/eod-report/generate
+## ⚙️ Configuration
 
-# Chat test
-curl -X POST http://localhost:8000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"query": "What emails need my attention?"}'
-Test Frontend
+### Backend Configuration
 
-Open http://localhost:5173
-Click "Generate Report Now"
-Navigate to Chat tab
-Ask: "What's due this week?"
-
-
-🎯 Use Cases
-For Students
-
-Never miss deadlines: Daily reminders of upcoming assignments
-Email prioritization: Know which professor emails need responses
-Schedule optimization: See meeting conflicts before they happen
-
-For Professionals
-
-Morning briefings: Wake up to yesterday's summary
-Task prioritization: AI-sorted to-do lists
-Meeting prep: Context about upcoming meetings
-
-
-🌟 Why This is Agentic
-1. Autonomous Observation
-
-Doesn't wait for user input
-Continuously monitors data sources
-Runs on schedule (6 PM daily)
-
-2. Reasoning Loops
-
-Multi-step analysis: Observe → Analyze → Decide
-Not just keyword matching
-Contextual understanding with Gemini
-
-3. Persistent Memory
-
-Remembers across sessions
-Learns patterns over time
-Historical context informs current decisions
-
-4. Proactive Action
-
-Generates reports without prompting
-Could expand to: send alerts, create calendar events, draft email responses
-
-5. Temporal Awareness
-
-Understands "yesterday", "this week", "trends"
-Compares current state with historical data
-
-📝 Environment Variables
-Create .env file in backend/:
-env# Required
-GEMINI_API_KEY=your_gemini_api_key
+Create a `.env` file in the `backend/` directory:
+```env
+# Required
+GEMINI_API_KEY=your_gemini_api_key_here
 
 # Optional (defaults shown)
 EOD_REPORT_HOUR=18
 EOD_REPORT_MINUTE=0
 DEBUG=True
 DATABASE_URL=sqlite+aiosqlite:///./workspace_agent.db
+```
 
-🐛 Troubleshooting
-"Module not found" Error
-bashpip install -r requirements.txt
-Google Auth Issues
-bash# Delete old token
+**Note:** Replace `your_gemini_api_key_here` with your actual Gemini API key.
+
+### Frontend Configuration
+
+The frontend is pre-configured to connect to `http://localhost:8000`. If your backend runs on a different port, update `frontend/src/api/client.js`.
+
+---
+
+## 🎮 Usage
+
+### Starting the Backend
+```bash
+cd backend
+
+# Activate virtual environment first
+# Windows: venv\Scripts\activate
+# macOS/Linux: source venv/bin/activate
+
+python main.py
+```
+
+**First-time authentication:**
+- A browser window will open automatically
+- Sign in with your Google account
+- Click **Allow** for all requested permissions
+- The browser will show "Authentication complete"
+- Authentication token saved to `token.json`
+
+Backend will be running at: `http://localhost:8000`
+
+### Starting the Frontend
+```bash
+cd frontend
+npm run dev
+```
+
+Frontend will be available at: `http://localhost:5173`
+
+### Using the Application
+
+1. **View Dashboard**: See your latest End-of-Day report and workspace statistics
+2. **Generate Report**: Click "Generate Report Now" to manually trigger a report
+3. **Chat Interface**: Navigate to Chat tab and ask questions about your workspace
+
+**Example Questions:**
+- "What assignments are due this week?"
+- "Do I have any important emails?"
+- "What's my schedule for today?"
+- "Any deadline conflicts?"
+
+---
+
+## 🔌 API Endpoints
+
+### Health Check
+```http
+GET /api/health
+```
+Returns API status and availability.
+
+### Get Latest EOD Report
+```http
+GET /api/eod-report
+```
+**Response:**
+```json
+{
+  "date": "2024-02-07",
+  "content": "Today you had 5 unread emails, 3 upcoming assignments..."
+}
+```
+
+### Generate EOD Report (Manual)
+```http
+POST /api/eod-report/generate
+```
+Manually triggers the autonomous observation cycle.
+
+### Chat with Agent
+```http
+POST /api/chat
+Content-Type: application/json
+
+{
+  "query": "What's due this week?"
+}
+```
+
+### Get Today's Snapshot
+```http
+GET /api/snapshot/today
+```
+Returns current day's observations (emails, assignments, meetings).
+
+### Get Chat History
+```http
+GET /api/chat/history
+```
+Returns recent conversation history.
+
+---
+
+## 🔄 How It Works
+
+### Autonomous Cycle (Daily at 6 PM)
+```
+┌─────────────────────────────────────┐
+│  1. OBSERVE                         │
+│  └─ Fetch Gmail emails              │
+│  └─ Get Classroom assignments       │
+│  └─ Pull Calendar meetings          │
+├─────────────────────────────────────┤
+│  2. STRUCTURE                       │
+│  └─ Convert to clean JSON schemas   │
+├─────────────────────────────────────┤
+│  3. REASON (via Gemini)             │
+│  └─ Analyze urgency & priorities    │
+│  └─ Detect risks & conflicts        │
+│  └─ Identify patterns               │
+├─────────────────────────────────────┤
+│  4. REMEMBER                        │
+│  └─ Store observations in database  │
+│  └─ Save insights & analysis        │
+├─────────────────────────────────────┤
+│  5. ACT                             │
+│  └─ Generate End-of-Day summary     │
+│  └─ Store report for user access    │
+└─────────────────────────────────────┘
+```
+
+### Chat Interaction Flow
+```
+User Query → Retrieve Context (today + history) → 
+Build Prompt → Gemini Reasoning → 
+Contextual Response → Store Conversation
+```
+
+---
+
+## 💡 Use Cases
+
+### For Students
+- ✅ Never miss assignment deadlines
+- ✅ Prioritize which professor emails need responses
+- ✅ Detect scheduling conflicts between classes and meetings
+- ✅ Weekly workload summaries
+
+### For Professionals
+- ✅ Morning briefings on yesterday's activities
+- ✅ AI-sorted task priorities
+- ✅ Meeting prep with relevant context
+- ✅ Track email response rates
+
+### For Teams
+- ✅ Shared workspace monitoring
+- ✅ Collaborative deadline tracking
+- ✅ Meeting overlap detection
+
+---
+
+## 🐛 Troubleshooting
+
+### Issue: "Module not found" Error
+
+**Solution:**
+```bash
+pip install -r requirements.txt
+```
+
+### Issue: Google Authentication Fails
+
+**Solution:**
+```bash
+# Delete old token
 rm backend/token.json
 
 # Restart server (will re-authenticate)
 python main.py
-CORS Error on Frontend
-Check backend/main.py has:
-pythonapp.add_middleware(
+```
+
+### Issue: CORS Error on Frontend
+
+**Solution:**  
+Check `backend/main.py` includes:
+```python
+app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-Gemini API Quota Exceeded
+```
 
-Check usage at Google AI Studio
-Free tier: 60 requests/minute
-Consider upgrading or implementing rate limiting
+### Issue: Gemini API Quota Exceeded
 
+**Solution:**
+- Check usage at [Google AI Studio](https://aistudio.google.com/)
+- Free tier: 60 requests/minute
+- Wait for quota reset or upgrade plan
 
-📄 License
-MIT License - feel free to use for your own projects!
+### Issue: Database Locked
 
-🙏 Acknowledgments
+**Solution:**
+```bash
+# Stop all running instances
+# Delete database file
+rm backend/workspace_agent.db
 
-Google Gemini API for AI reasoning
-Anthropic for inspiration on agentic systems
-FastAPI and React communities
+# Restart server (creates fresh database)
+python main.py
+```
 
-⭐ Star This Repo!
-If you find this project helpful, please give it a star ⭐
-It helps others discover agentic AI patterns!
+### Issue: Frontend Can't Connect to Backend
 
-Built with ❤️ for the Google Gemini Devpost Hackathon
+**Solution:**
+- Ensure backend is running on port 8000
+- Check `frontend/src/api/client.js` has correct URL
+- Verify no firewall blocking localhost connections
+
+---
+
+## 🌟 Future Enhancements
+
+- [ ] **Proactive Alerts**: Email/Slack notifications for critical deadlines
+- [ ] **Smart Scheduling**: AI-suggested meeting times based on workload
+- [ ] **Email Draft Assistant**: Auto-generate reply suggestions
+- [ ] **Voice Interface**: Voice commands and responses
+- [ ] **Multi-user Support**: Team workspace collaboration
+- [ ] **Mobile App**: iOS/Android applications
+- [ ] **Additional Integrations**: Notion, Todoist, Slack, Microsoft Teams
+- [ ] **Predictive Analytics**: Forecast busy weeks and suggest time blocking
+- [ ] **Custom Workflows**: User-defined automation rules
+- [ ] **Data Visualization**: Charts and graphs for productivity insights
+
+---
+
+## 👥 Team
+
+**Built for Google Gemini Devpost Hackathon 2026**
+
+- **Backend Developer** - Bilal & Talha
+- **Frontend Developer** - Bilal & Talha
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- **Google Gemini API** - For powerful AI reasoning capabilities
+- **Google Workspace APIs** - For seamless data integration
+- **FastAPI & React Communities** - For excellent documentation and support
+
+---
+
+## ⭐ Star This Repository
+
+If you find this project helpful or interesting, please give it a star! ⭐
+
+It helps others discover agentic AI patterns and supports our work.
+
+---
+
+## 🚀 Quick Links
+
+- [Google Gemini API Docs](https://ai.google.dev/docs)
+- [FastAPI Documentation](https://fastapi.tiangolo.com/)
+- [React Documentation](https://react.dev/)
+
+---
+
+**Made with ❤️ for the Google Gemini Devpost Hackathon**
+
+*Demonstrating autonomous AI agents, not just chatbots.*
