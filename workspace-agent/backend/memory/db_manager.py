@@ -27,27 +27,54 @@ class DatabaseManager:
         print("[DB] Database initialized")
     
     async def store_daily_snapshot(self, snapshot_data: dict):
-        """Store daily observations and insights"""
+        """Store or update daily observations and insights"""
         async with self.async_session() as session:
-            snapshot = DailySnapshot(
-                date=snapshot_data["date"],
-                observations=snapshot_data["observations"],
-                insights=snapshot_data.get("insights", {})
+            # Check if snapshot already exists for this date
+            result = await session.execute(
+                select(DailySnapshot).where(DailySnapshot.date == snapshot_data["date"])
             )
-            session.add(snapshot)
+            existing = result.scalar_one_or_none()
+            
+            if existing:
+                # Update existing snapshot
+                existing.observations = snapshot_data["observations"]
+                existing.insights = snapshot_data.get("insights", {})
+                print(f"[DB] Updated snapshot for {snapshot_data['date']}")
+            else:
+                # Create new snapshot
+                snapshot = DailySnapshot(
+                    date=snapshot_data["date"],
+                    observations=snapshot_data["observations"],
+                    insights=snapshot_data.get("insights", {})
+                )
+                session.add(snapshot)
+                print(f"[DB] Stored new snapshot for {snapshot_data['date']}")
+            
             await session.commit()
-            print(f"[DB] Stored snapshot for {snapshot_data['date']}")
     
     async def store_eod_report(self, report_data: dict):
-        """Store end-of-day report"""
+        """Store or update end-of-day report"""
         async with self.async_session() as session:
-            report = EODReport(
-                date=report_data["date"],
-                content=report_data["content"]
+            # Check if report already exists for this date
+            result = await session.execute(
+                select(EODReport).where(EODReport.date == report_data["date"])
             )
-            session.add(report)
+            existing = result.scalar_one_or_none()
+            
+            if existing:
+                # Update existing report
+                existing.content = report_data["content"]
+                print(f"[DB] Updated EOD report for {report_data['date']}")
+            else:
+                # Create new report
+                report = EODReport(
+                    date=report_data["date"],
+                    content=report_data["content"]
+                )
+                session.add(report)
+                print(f"[DB] Stored new EOD report for {report_data['date']}")
+            
             await session.commit()
-            print(f"[DB] Stored EOD report for {report_data['date']}")
     
     async def get_latest_eod_report(self) -> Optional[Dict]:
         """Get most recent EOD report"""

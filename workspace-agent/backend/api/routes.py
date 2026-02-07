@@ -1,10 +1,13 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
+from datetime import datetime, date
+from schemas.responses import (
+    WorkspaceSnapshot, EODReportResponse, ChatResponse, ChatMessage,
+    EmailSummary, AssignmentSummary, MeetingSummary
+)
 
 router = APIRouter()
-
-# Global agent instance (will be set in main.py)
 agent = None
 
 def set_agent(agent_instance):
@@ -14,22 +17,131 @@ def set_agent(agent_instance):
 class ChatRequest(BaseModel):
     query: str
 
-class ChatResponse(BaseModel):
-    response: str
-
 @router.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "message": "Agent is running"}
+    return {
+        "status": "healthy",
+        "message": "Workspace Agent is running",
+        "timestamp": datetime.now().isoformat()
+    }
 
-@router.get("/eod-report")
+@router.get("/snapshot/today", response_model=WorkspaceSnapshot)
+async def get_today_snapshot():
+    """Get today's workspace snapshot with structured data"""
+    try:
+        snapshot = await agent.db.get_snapshot_by_date(date.today())
+        
+        if not snapshot:
+            return WorkspaceSnapshot(
+                date=date.today().isoformat(),
+                emails=[],
+                assignments=[],
+                meetings=[],
+                summary="No data collected yet. Click 'Generate Report' to start.",
+                urgent_count=0,
+                important_count=0
+            )
+        
+        observations = snapshot.get('observations', {})
+        insights = snapshot.get('insights', {})
+        analysis = insights.get('analysis', {})
+        
+        # Structure emails
+        emails = [
+            EmailSummary(
+                sender=e.get('sender', 'Unknown'),
+                subject=e.get('subject', 'No subject'),
+                snippet=e.get('snippet', '')[:150],
+                received=e.get('received', ''),
+                urgency="high" if e.get('is_unread') else "normal"
+            )
+            for e in observations.get('emails', [])[:10]
+        ]
+        
+        # Structure assignments
+        assignments = [
+            AssignmentSummary(
+                course=a.get('course', 'Unknown'),
+                title=a.get('title', 'Untitled'),
+                due_date=a.get('due', ''),
+                days_until_due=_calculate_days_until(a.get('due', '')),
+                points=a.get('points', 0),
+                urgency=_calculate_urgency_from_due(a.get('due', ''))
+            )
+            for a in observations.get('assignments', [])
+        ]
+        
+        # Structure meetings
+        meetings = [
+            MeetingSummary(
+                title=m.get('title', 'No title'),
+                start_time=m.get('start', ''),
+                duration_minutes=m.get('duration_minutes', 0),
+                attendees_count=m.get('attendees_count', 0)
+            )
+            for m in observations.get('meetings', [])
+        ]
+        
+        return WorkspaceSnapshot(
+            date=snapshot.get('date', date.today().isoformat()),
+            emails=emails,
+            assignments=assignments,
+            meetings=meetings,
+            summary=analysis.get('one_sentence_summary', 'Data collected successfully'),
+            urgent_count=len(analysis.get('urgent', [])),
+            important_count=len(analysis.get('important', []))
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/eod-report", response_model=EODReportResponse)
 async def get_eod_report():
-    """Get latest End-of-Day report"""
+    """Get latest EOD report with structured highlights"""
     try:
         report = await agent.db.get_latest_eod_report()
-        if not report:
-            return {"message": "No report available yet"}
-        return report
+        snapshot = await agent.db.get_snapshot_by_date(date.today())
+        
+        if not report or not report.get('content'):
+            return EODReportResponse(
+                date=date.today().isoformat(),
+                content="No report generated yet. Click 'Generate Report Now' to create one.",
+                highlights=[],
+                urgent_items=[],
+                stats={"emails": 0, "assignments": 0, "meetings": 0}
+            )
+        
+        # Extract insights
+        insights = snapshot.get('insights', {}) if snapshot else {}
+        analysis = insights.get('analysis', {})
+        counts = insights.get('counts', {})
+        
+        # Extract highlights from analysis
+        highlights = []
+        urgent_items_list = analysis.get('urgent', [])
+        
+        for item in urgent_items_list[:3]:
+            highlights.append(f"{item.get('title', 'Item')}: {item.get('reason', 'Needs attention')}")
+        
+        return EODReportResponse(
+            date=report.get('date', date.today().isoformat()),
+            content=report.get('content', ''),
+            highlights=highlights,
+            urgent_items=[
+                {
+                    "type": item.get('type', 'item'),
+                    "title": item.get('title', 'Unknown'),
+                    "action": item.get('action', item.get('reason', ''))
+                }
+                for item in urgent_items_list
+            ],
+            stats={
+                "emails": counts.get('emails', 0),
+                "assignments": counts.get('assignments', 0),
+                "meetings": counts.get('meetings', 0)
+            }
+        )
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -38,16 +150,48 @@ async def trigger_eod_report():
     """Manually trigger EOD report generation"""
     try:
         report = await agent.autonomous_observation_cycle()
-        return {"message": "Report generated", "content": report}
+        return {
+            "status": "success",
+            "message": "Report generated successfully",
+            "report_available": report is not None
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_agent(request: ChatRequest):
-    """Chat with the agent"""
+    """Enhanced chat with context and suggestions"""
     try:
         response = await agent.chat(request.query)
-        return ChatResponse(response=response)
+        
+        # Check if we have data
+        snapshot = await agent.db.get_snapshot_by_date(date.today())
+        has_data = snapshot is not None
+        
+        # Generate suggestions
+        suggestions = []
+        if has_data:
+            observations = snapshot.get('observations', {})
+            if observations.get('emails'):
+                suggestions.append("What emails need my attention?")
+            if observations.get('assignments'):
+                suggestions.append("What's due this week?")
+            if observations.get('meetings'):
+                suggestions.append("What's my schedule today?")
+        else:
+            suggestions = [
+                "Generate my first report",
+                "What can you help me with?",
+                "How does this work?"
+            ]
+        
+        return ChatResponse(
+            response=response or "⚠️ Unable to process request. Please try again.",
+            context_used=has_data,
+            sources=["Gmail", "Calendar"] if has_data else [],
+            suggestions=suggestions[:3]
+        )
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -55,19 +199,50 @@ async def chat_with_agent(request: ChatRequest):
 async def get_chat_history():
     """Get recent chat history"""
     try:
-        history = await agent.db.get_recent_chat_history(limit=20)
-        return {"history": history}
+        history = await agent.db.get_recent_chat_history(limit=50)
+        
+        # Format properly for frontend
+        formatted_history = []
+        for h in history:
+            # Each history item has user and agent in same object
+            if h.get('user'):
+                formatted_history.append({
+                    "role": "user",
+                    "content": h['user'],
+                    "timestamp": h.get('timestamp', '')
+                })
+            if h.get('agent'):
+                formatted_history.append({
+                    "role": "agent",
+                    "content": h['agent'],
+                    "timestamp": h.get('timestamp', '')
+                })
+        
+        return {"history": formatted_history}
+    
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[API ERROR] Chat history: {e}")
+        # Return empty instead of crashing
+        return {"history": []}
 
-@router.get("/snapshot/today")
-async def get_today_snapshot():
-    """Get today's observations snapshot"""
+# Helper functions
+def _calculate_days_until(due_date_str: str) -> int:
+    """Calculate days until due date"""
     try:
-        from datetime import date
-        snapshot = await agent.db.get_snapshot_by_date(date.today())
-        if not snapshot:
-            return {"message": "No snapshot for today"}
-        return snapshot
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        due = datetime.fromisoformat(due_date_str.replace('Z', '+00:00'))
+        delta = due - datetime.now(due.tzinfo)
+        return max(0, delta.days)
+    except:
+        return 999
+
+def _calculate_urgency_from_due(due_date_str: str) -> str:
+    """Calculate urgency level from due date"""
+    days = _calculate_days_until(due_date_str)
+    if days == 0:
+        return "critical"
+    elif days <= 2:
+        return "high"
+    elif days <= 7:
+        return "normal"
+    else:
+        return "low"

@@ -16,47 +16,48 @@ class GmailConnector:
         self.service = None
     
     def authenticate(self):
+        """Authenticate with Gmail API"""
         print("[GMAIL] Token will be saved to:", self.token_file)
-
         creds = None
-
-        # Load token if exists
+        
+        # Try to load existing token (PICKLE FORMAT)
         if os.path.exists(self.token_file):
-            creds = Credentials.from_authorized_user_file(
-                self.token_file, self.scopes
-            )
-
-        # If credentials invalid → login
+            try:
+                with open(self.token_file, 'rb') as token:
+                    creds = pickle.load(token)
+                print("[GMAIL] Token loaded from pickle")
+            except Exception as e:
+                print(f"[GMAIL] Token corrupted, deleting: {e}")
+                os.remove(self.token_file)
+                creds = None
+        
+        # If no valid credentials, login
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
+                print("[GMAIL] Refreshing expired token...")
                 creds.refresh(Request())
             else:
+                print("[GMAIL] Starting OAuth flow...")
                 flow = InstalledAppFlow.from_client_secrets_file(
                     self.credentials_file, self.scopes
                 )
                 creds = flow.run_local_server(port=0)
-
-            # Save token JSON
-            with open(self.token_file, "w") as token:
-                token.write(creds.to_json())
-
-            print("Token saved successfully")
-
-        self.service = build("gmail", "v1", credentials=creds)
-        print("[GMAIL] Authenticated successfully")
-
-
+            
+            # Save token as PICKLE
+            with open(self.token_file, 'wb') as token:
+                pickle.dump(creds, token)
+            print("[GMAIL] Token saved successfully")
+        
         self.service = build('gmail', 'v1', credentials=creds)
         print("[GMAIL] Authenticated successfully")
-
-        
+    
     async def get_unread_important_emails(self, max_results: int = 10) -> List[Email]:
         """Fetch unread or important emails"""
         if not self.service:
             self.authenticate()
         
         try:
-            #query for unread or important emails
+            # Query for unread or important emails
             results = self.service.users().messages().list(
                 userId='me',
                 q='is:unread OR is:important',
