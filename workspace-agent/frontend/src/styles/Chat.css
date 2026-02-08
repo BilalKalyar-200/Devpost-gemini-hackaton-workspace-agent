@@ -344,3 +344,58 @@
 .messages-container::-webkit-scrollbar-thumb:hover {
   background: var(--gray-400);
 }
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--gray-600);
+}
+
+.loading-state p {
+  margin-top: var(--space-md);
+}
+
+/* Message formatting */
+.message-content h3.message-header {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0 0 var(--space-sm) 0;
+  color: var(--primary-600);
+}
+
+.message-wrapper.agent .message-content h3.message-header {
+  color: var(--primary-600);
+}
+
+.message-wrapper.user .message-content h3.message-header {
+  color: white;
+}
+
+.message-content strong {
+  font-weight: 600;
+}
+
+.message-wrapper.agent .message-content strong {
+  color: var(--gray-900);
+}
+
+.message-wrapper.user .message-content strong {
+  color: white;
+}
+
+.message-content em {
+  font-style: italic;
+  opacity: 0.9;
+}
+
+/* Better spacing for formatted messages */
+.message-content > div {
+  margin-bottom: 0.25rem;
+}
+
+.message-content > div:last-child {
+  margin-bottom: 0;
+}

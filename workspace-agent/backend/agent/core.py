@@ -1,6 +1,7 @@
 from datetime import datetime, date
-from typing import Dict, List
+from typing import Dict, List, Optional
 import json
+import re
 
 from connectors.gmail_connector import GmailConnector
 from connectors.classroom_connector import ClassroomConnector
@@ -27,6 +28,7 @@ class WorkspaceAgent:
         self.gemini = gemini
         self.db = db
         self.prompts = PromptTemplates()
+        self._last_context = None  # Track last mentioned context for follow-ups
         logger.success("Agent initialized successfully")
     
     async def autonomous_observation_cycle(self):
@@ -210,91 +212,530 @@ class WorkspaceAgent:
         analysis = insights.get('analysis', {})
         counts = insights.get('counts', {})
         
-        report = f"""📊 **End-of-Day Summary**
-
-**Today's Activity:**
-- {counts.get('emails', 0)} emails processed
-- {counts.get('assignments', 0)} assignments tracked
-- {counts.get('meetings', 0)} meetings attended
-
-**Urgent Items:**
-"""
+        report = "## 📊 End-of-Day Summary\n\n"
+        report += f"**Today's Activity:**\n"
+        report += f"- {counts.get('emails', 0)} emails processed\n"
+        report += f"- {counts.get('assignments', 0)} assignments tracked\n"
+        report += f"- {counts.get('meetings', 0)} meetings attended\n\n"
         
         urgent = analysis.get('urgent', [])
         if urgent:
+            report += "**⚠️ Urgent Actions:**\n"
             for item in urgent[:3]:
-                report += f"\n- {item.get('title', 'Item')}: {item.get('reason', 'Needs attention')}"
-        else:
-            report += "\n- No urgent items detected"
+                report += f"- **{item.get('title', 'Item')}**: {item.get('reason', 'Needs attention')}\n"
         
-        report += "\n\n**Status:** All systems operational. Data collection successful."
+        important = analysis.get('important', [])
+        if important:
+            report += "\n**Important Items:**\n"
+            for item in important[:3]:
+                report += f"- {item.get('title', 'Item')}: {item.get('reason', '')}\n"
+        
+        report += "\n\n✅ All systems operational. Data collection successful."
         
         return report
     
     async def chat(self, user_query: str) -> str:
-        """Handle user chat queries"""
+        """INTELLIGENT CHAT WITH CONTEXT AND ENTITY RESOLUTION"""
         logger.info(f'User asked: "{user_query}"')
         
-        # Retrieve context
+        # Get full context
         today_snapshot = await self.db.get_snapshot_by_date(date.today())
         past_summaries = await self.db.get_recent_summaries(days=3)
-        chat_history = await self.db.get_recent_chat_history(limit=5)
+        chat_history = await self.db.get_recent_chat_history(limit=10)
         
-        context = {
-            "user_query": user_query,
-            "today_snapshot": today_snapshot,
-            "past_summaries": past_summaries,
-            "chat_history": chat_history
-        }
+        # Extract observations
+        observations = today_snapshot.get('observations', {}) if today_snapshot else {}
+        emails = observations.get('emails', [])
+        assignments = observations.get('assignments', [])
+        meetings = observations.get('meetings', [])
         
-        # Generate response
-        system_prompt = self.prompts.get_system_prompt()
-        prompt = self.prompts.chat_prompt(context)
+        # STEP 1: Detect intent and entities
+        intent = self._detect_intent(user_query, chat_history)
+        entities = self._extract_entities(user_query, emails, assignments, meetings)
         
-        response = await self.gemini.generate(prompt, system_prompt)
+        logger.info(f"Detected intent: {intent}, entities: {list(entities.keys())}")
         
-        # Fallback if Gemini fails
+        # STEP 2: Generate intelligent response
+        response = None
+        
+        # Handle specific intents first
+        if intent == 'last_item':
+            response = self._handle_last_item_query(user_query, emails, assignments, meetings)
+        elif intent == 'follow_up':
+            response = self._handle_follow_up(user_query, chat_history, entities, observations)
+        elif intent == 'detail_request' and entities:
+            response = self._handle_detail_request(entities, observations)
+        elif intent == 'search_by_sender':
+            response = self._handle_sender_search(user_query, emails)
+        
+        # If no response yet, try Gemini or fallback
         if not response:
-            response = self._create_fallback_chat_response(user_query, today_snapshot)
+            context = {
+                "user_query": user_query,
+                "today_snapshot": today_snapshot,
+                "past_summaries": past_summaries,
+                "chat_history": chat_history
+            }
+            
+            system_prompt = self.prompts.get_system_prompt()
+            prompt = self.prompts.chat_prompt(context)
+            
+            response = await self.gemini.generate(prompt, system_prompt)
+            
+            # Fallback to intelligent rule-based
+            if not response or getattr(self.gemini, 'quota_exceeded', False):
+                response = self._intelligent_fallback(user_query, intent, entities, observations)
         
-        # Store conversation
+        # Store conversation and update last context
         await self.db.store_chat_turn(user_query, response)
+        self._update_last_context(response, entities, observations)
         
         return response
     
-    def _create_fallback_chat_response(self, query: str, snapshot: Dict) -> str:
-        """Create response when Gemini is unavailable"""
-        if not snapshot:
-            return "I don't have any data collected yet. Click 'Generate Report' to start tracking your workspace."
+    def _update_last_context(self, response: str, entities: Dict, observations: Dict):
+        """Track what was last mentioned for better follow-up handling"""
+        # Determine what type of content was in the response
+        if 'meeting' in response.lower():
+            self._last_context = {'type': 'meeting', 'data': entities.get('meeting') or observations.get('meetings', [])}
+        elif 'email' in response.lower() or '📧' in response:
+            self._last_context = {'type': 'email', 'data': entities.get('emails') or observations.get('emails', [])}
+        elif 'assignment' in response.lower():
+            self._last_context = {'type': 'assignment', 'data': entities.get('assignments') or observations.get('assignments', [])}
+    
+    def _detect_intent(self, query: str, history: List[Dict]) -> str:
+        """Detect user intent from query and history"""
+        query_lower = query.lower()
         
-        observations = snapshot.get('observations', {})
+        # Check for "last", "latest", "most recent" - CRITICAL FIX
+        last_words = ['last', 'latest', 'most recent', 'newest', 'first']
+        if any(word in query_lower for word in last_words):
+            return 'last_item'
+        
+        # Check for sender search (email from someone)
+        from_pattern = r'from\s+(\w+)'
+        if re.search(from_pattern, query_lower) or any(phrase in query_lower for phrase in ['mail from', 'email from', 'message from']):
+            return 'search_by_sender'
+        
+        # Follow-up indicators - check if referring to previous context
+        follow_up_words = ['that', 'it', 'this', 'them', 'those', 'detail', 'more', 'about', 'tell me about', 'info']
+        has_follow_up_word = any(word in query_lower for word in follow_up_words)
+        
+        # If we have recent context and user asks about "that" or "it"
+        if has_follow_up_word and (history or self._last_context):
+            # Check if it's asking about details of last mentioned item
+            if any(word in query_lower for word in ['detail', 'more', 'about', 'tell me', 'info']):
+                return 'follow_up'
+        
+        # Detail request indicators for specific items
+        detail_words = ['detail', 'more info', 'explain', 'tell me about', 'what about', 'show me']
+        if any(word in query_lower for word in detail_words):
+            return 'detail_request'
+        
+        # List request
+        list_words = ['show', 'list', 'what', 'any', 'do i have', 'give me']
+        if any(word in query_lower for word in list_words):
+            return 'list_request'
+        
+        return 'general'
+    
+    def _extract_entities(self, query: str, emails: List, assignments: List, meetings: List) -> Dict:
+        """Extract specific entities mentioned in query with IMPROVED matching"""
+        entities = {}
+        query_lower = query.lower()
+        query_words = set(query_lower.split())
+        
+        # Check for email references
+        if any(word in query_lower for word in ['email', 'mail', 'inbox', 'message']):
+            # Check for sender - IMPROVED: bidirectional partial matching
+            for email in emails:
+                sender = email.get('sender', '').lower()
+                sender_parts = set(sender.replace(',', '').replace('@', ' ').split())
+                
+                # Check if any query word matches part of sender name
+                for word in query_words:
+                    if len(word) > 2 and word in sender:  # Partial match
+                        entities['email'] = email
+                        entities['matched_sender'] = sender
+                        break
+                    # Also check if sender parts match query
+                    for part in sender_parts:
+                        if len(part) > 2 and (part in word or word in part):
+                            entities['email'] = email
+                            entities['matched_sender'] = sender
+                            break
+                    if 'email' in entities:
+                        break
+                if 'email' in entities:
+                    break
+            
+            # Check for LinkedIn
+            if 'linkedin' in query_lower or 'linked' in query_lower:
+                linkedin_emails = [e for e in emails if 'linkedin' in e.get('sender', '').lower()]
+                if linkedin_emails:
+                    entities['emails'] = linkedin_emails
+                    entities['email_source'] = 'linkedin'
+            
+            # Check for GitHub
+            if 'github' in query_lower:
+                github_emails = [e for e in emails if 'github' in e.get('sender', '').lower() or 'github' in e.get('subject', '').lower()]
+                if github_emails:
+                    entities['emails'] = github_emails
+                    entities['email_source'] = 'github'
+            
+            # Check for urgency/important keywords in subject
+            if any(word in query_lower for word in ['urgent', 'urgency', 'important', 'asap']):
+                urgent_emails = [e for e in emails if any(uw in e.get('subject', '').lower() for uw in ['urgent', 'important', 'asap', 'action required', 'deadline'])]
+                if urgent_emails:
+                    entities['emails'] = urgent_emails
+                    entities['email_type'] = 'urgent'
+        
+        # Check for meeting references
+        if any(word in query_lower for word in ['meeting', 'schedule', 'calendar', 'event']):
+            if meetings:
+                # If asking about "that meeting" or "the meeting", get the first one
+                entities['meeting'] = meetings[0]
+                entities['all_meetings'] = meetings
+        
+        # Check for assignment references
+        if any(word in query_lower for word in ['assignment', 'homework', 'due', 'classroom', 'course']):
+            if assignments:
+                entities['assignments'] = assignments
+        
+        return entities
+    
+    def _handle_last_item_query(self, query: str, emails: List, assignments: List, meetings: List) -> Optional[str]:
+        """Handle 'last email', 'latest mail', etc. - CRITICAL FIX"""
+        query_lower = query.lower()
+        
+        # Email queries
+        if any(word in query_lower for word in ['mail', 'email', 'message']):
+            if emails:
+                # Sort by received time if possible, otherwise take first
+                sorted_emails = sorted(emails, 
+                    key=lambda x: x.get('received', ''), 
+                    reverse=True)
+                latest = sorted_emails[0] if sorted_emails else emails[0]
+                return self._format_email_details(latest)
+            return "📧 **No emails found.**"
+        
+        # Meeting queries
+        if any(word in query_lower for word in ['meeting', 'event']):
+            if meetings:
+                sorted_meetings = sorted(meetings,
+                    key=lambda x: x.get('start', ''),
+                    reverse=True)
+                latest = sorted_meetings[0] if sorted_meetings else meetings[0]
+                return self._format_meeting_details(latest)
+            return "📅 **No meetings found.**"
+        
+        # Assignment queries
+        if any(word in query_lower for word in ['assignment', 'homework']):
+            if assignments:
+                return self._format_assignment_list(assignments[:1])
+            return "📚 **No assignments found.**"
+        
+        return None
+    
+    def _handle_sender_search(self, query: str, emails: List) -> Optional[str]:
+        """Handle 'email from X' queries with fuzzy matching"""
+        query_lower = query.lower()
+        
+        # Extract name after "from"
+        match = re.search(r'from\s+([\w\s]+?)(?:\?|\.|$|mail|email)', query_lower)
+        if not match:
+            # Try simpler extraction
+            parts = query_lower.split('from')
+            if len(parts) > 1:
+                search_name = parts[1].strip().split()[0]
+            else:
+                return None
+        else:
+            search_name = match.group(1).strip()
+        
+        if not search_name or len(search_name) < 2:
+            return None
+        
+        # Fuzzy search in emails
+        matching_emails = []
+        search_parts = search_name.split()
+        
+        for email in emails:
+            sender = email.get('sender', '').lower()
+            # Check if all parts of search name are in sender
+            if all(part in sender for part in search_parts):
+                matching_emails.append(email)
+            # Or if sender parts match search
+            elif any(search_name in sender for part in [sender]):
+                matching_emails.append(email)
+        
+        if matching_emails:
+            return self._format_email_list(matching_emails, detailed=True)
+        
+        return f"📧 **No emails found from '{search_name.title()}'.**"
+    
+    def _handle_follow_up(self, query: str, history: List, entities: Dict, observations: Dict) -> str:
+        """Handle follow-up questions using conversation context - CRITICAL FIX"""
+        query_lower = query.lower()
+        
+        # Use stored last context if available
+        if self._last_context:
+            context_type = self._last_context['type']
+            context_data = self._last_context['data']
+            
+            # Check if asking about details of last mentioned item
+            if any(word in query_lower for word in ['detail', 'more', 'about', 'that', 'it', 'tell me']):
+                if context_type == 'meeting' and context_data:
+                    if isinstance(context_data, list) and context_data:
+                        return self._format_meeting_details(context_data[0])
+                    elif isinstance(context_data, dict):
+                        return self._format_meeting_details(context_data)
+                
+                elif context_type == 'email' and context_data:
+                    if isinstance(context_data, list) and context_data:
+                        return self._format_email_list(context_data, detailed=True)
+                    elif isinstance(context_data, dict):
+                        return self._format_email_details(context_data)
+                
+                elif context_type == 'assignment' and context_data:
+                    if isinstance(context_data, list) and context_data:
+                        return self._format_assignment_list(context_data)
+        
+        # Fallback: check history
+        if history:
+            last_agent_msg = None
+            for item in reversed(history):
+                if item.get('agent'):
+                    last_agent_msg = item['agent'].lower()
+                    break
+            
+            if last_agent_msg:
+                # If last message mentioned meetings and user asks for details
+                if any(word in last_agent_msg for word in ['meeting', 'hackaton']) and any(word in query_lower for word in ['detail', 'about', 'that', 'it', 'more']):
+                    meetings = observations.get('meetings', [])
+                    if meetings:
+                        return self._format_meeting_details(meetings[0])
+                
+                # If last message mentioned emails
+                if 'email' in last_agent_msg and any(word in query_lower for word in ['detail', 'about', 'that', 'them', 'more']):
+                    emails = observations.get('emails', [])
+                    if emails:
+                        return self._format_email_list(emails[:5], detailed=True)
+                
+                # If last message mentioned assignments
+                if 'assignment' in last_agent_msg:
+                    assignments = observations.get('assignments', [])
+                    if assignments:
+                        return self._format_assignment_list(assignments)
+        
+        return "Could you clarify what you'd like to know more about?"
+    
+    def _handle_detail_request(self, entities: Dict, observations: Dict) -> str:
+        """Provide detailed information about specific entities"""
+        
+        # Meeting details
+        if 'meeting' in entities:
+            return self._format_meeting_details(entities['meeting'])
+        
+        # Email details
+        if 'email' in entities:
+            return self._format_email_details(entities['email'])
+        
+        if 'emails' in entities:
+            return self._format_email_list(entities['emails'], detailed=True)
+        
+        # Assignment details
+        if 'assignments' in entities:
+            return self._format_assignment_list(entities['assignments'])
+        
+        # If no specific entity but asking for details, show summary
+        emails = observations.get('emails', [])
+        meetings = observations.get('meetings', [])
+        assignments = observations.get('assignments', [])
+        
+        return self._format_summary(emails, assignments, meetings)
+    
+    def _intelligent_fallback(self, query: str, intent: str, entities: Dict, observations: Dict) -> str:
+        """Intelligent rule-based fallback when Gemini unavailable"""
         emails = observations.get('emails', [])
         assignments = observations.get('assignments', [])
         meetings = observations.get('meetings', [])
         
         query_lower = query.lower()
         
-        # Simple keyword matching
-        if 'email' in query_lower:
-            if emails:
-                return f"You have {len(emails)} emails. The most recent are from: " + \
-                       ", ".join([e.get('sender', 'unknown')[:30] for e in emails[:3]])
-            else:
-                return "No emails found in today's data."
+        # MEETING QUERIES
+        if any(word in query_lower for word in ['meeting', 'schedule', 'calendar']):
+            if not meetings:
+                return "📅 **No meetings scheduled for today.**\n\nYour calendar is clear!"
+            
+            if any(word in query_lower for word in ['detail', 'about', 'tell', 'what']):
+                return self._format_meeting_details(meetings[0])
+            
+            return self._format_meeting_list(meetings)
         
-        elif 'assignment' in query_lower or 'due' in query_lower:
-            if assignments:
-                return f"You have {len(assignments)} assignments. " + \
-                       " | ".join([f"{a.get('title', 'Assignment')} for {a.get('course', 'course')}" for a in assignments[:3]])
-            else:
-                return "No assignments found in today's data."
+        # EMAIL QUERIES
+        if any(word in query_lower for word in ['email', 'mail', 'inbox']):
+            if not emails:
+                return "📧 **No unread emails.**\n\nYour inbox is clear!"
+            
+            # LinkedIn specific
+            if 'linkedin' in query_lower or 'linked' in query_lower:
+                linkedin_emails = [e for e in emails if 'linkedin' in e.get('sender', '').lower()]
+                if linkedin_emails:
+                    return self._format_email_list(linkedin_emails, detailed=True)
+                return "No LinkedIn emails found."
+            
+            # Google specific
+            if 'google' in query_lower:
+                google_emails = [e for e in emails if 'google' in e.get('sender', '').lower()]
+                if google_emails:
+                    return self._format_email_list(google_emails, detailed=True)
+                return "No emails from Google found."
+            
+            # Important/urgent
+            if any(word in query_lower for word in ['important', 'urgent']):
+                return self._format_email_list(emails[:3], detailed=True)
+            
+            # General email list
+            return self._format_email_list(emails[:5])
         
-        elif 'meeting' in query_lower or 'schedule' in query_lower:
-            if meetings:
-                return f"You have {len(meetings)} meetings today: " + \
-                       ", ".join([m.get('title', 'Meeting') for m in meetings])
-            else:
-                return "No meetings scheduled for today."
+        # ASSIGNMENT QUERIES
+        if any(word in query_lower for word in ['assignment', 'homework', 'due', 'classroom']):
+            if not assignments:
+                return "📚 **No assignments due.**\n\nYou're all caught up with coursework!"
+            
+            return self._format_assignment_list(assignments)
         
-        else:
-            return f"I have data for {len(emails)} emails, {len(assignments)} assignments, and {len(meetings)} meetings. Ask me about any of these!"
+        # SUMMARY QUERIES
+        if any(word in query_lower for word in ['summary', 'overview', 'today', 'status']):
+            return self._format_summary(emails, assignments, meetings)
+        
+        # DEFAULT
+        return f"I have **{len(emails)} emails**, **{len(assignments)} assignments**, and **{len(meetings)} meetings**.\n\n**Try asking:**\n• Show my emails\n• Any meetings today?\n• What's due this week?"
+    
+    # FORMATTING METHODS
+    
+    def _format_meeting_details(self, meeting: Dict) -> str:
+        """Format detailed meeting information"""
+        title = meeting.get('title', 'Untitled Meeting')
+        start = meeting.get('start', 'Unknown time')
+        duration = meeting.get('duration_minutes', 0)
+        attendees = meeting.get('attendees_count', 0)
+        description = meeting.get('description', '')
+        location = meeting.get('location', '')
+        
+        # Parse time if ISO format
+        try:
+            from dateutil import parser
+            dt = parser.parse(start)
+            time_str = dt.strftime('%I:%M %p')
+            date_str = dt.strftime('%A, %B %d')
+        except:
+            time_str = start
+            date_str = "Today"
+        
+        response = f"## 📅 {title}\n\n"
+        response += f"**When:** {date_str} at {time_str}\n"
+        response += f"**Duration:** {duration} minutes\n"
+        
+        if location:
+            response += f"**Location:** {location}\n"
+        
+        if attendees > 0:
+            response += f"**Attendees:** {attendees} people\n"
+        
+        if description:
+            response += f"\n**Description:**\n{description}\n"
+        
+        response += f"\n💡 **Tip:** Make sure to prepare any materials needed for this meeting."
+        
+        return response
+    
+    def _format_meeting_list(self, meetings: List[Dict]) -> str:
+        """Format list of meetings"""
+        response = f"## 📅 Today's Meetings ({len(meetings)})\n\n"
+        
+        for i, meeting in enumerate(meetings, 1):
+            title = meeting.get('title', 'Untitled')
+            start = meeting.get('start', '')
+            
+            try:
+                from dateutil import parser
+                dt = parser.parse(start)
+                time_str = dt.strftime('%I:%M %p')
+            except:
+                time_str = start
+            
+            response += f"**{i}. {title}**\n"
+            response += f"   ⏰ {time_str}\n"
+            response += f"   ⏱️ {meeting.get('duration_minutes', 0)} minutes\n\n"
+        
+        response += "*Ask me for details about any meeting!*"
+        return response
+    
+    def _format_email_details(self, email: Dict) -> str:
+        """Format single email details"""
+        response = f"## 📧 {email.get('subject', 'No Subject')}\n\n"
+        response += f"**From:** {email.get('sender', 'Unknown')}\n"
+        response += f"**Received:** {email.get('received', 'Unknown time')}\n\n"
+        response += f"**Preview:**\n{email.get('snippet', 'No preview available')}\n"
+        
+        return response
+    
+    def _format_email_list(self, emails: List[Dict], detailed: bool = False) -> str:
+        """Format list of emails"""
+        response = f"## 📧 Emails ({len(emails)})\n\n"
+        
+        for i, email in enumerate(emails, 1):
+            subject = email.get('subject', 'No Subject')
+            sender = email.get('sender', 'Unknown')
+            snippet = email.get('snippet', '')[:150]  # Increased preview length
+            
+            response += f"**{i}. {subject}**\n"
+            response += f"   From: {sender}\n"
+            
+            if detailed:
+                response += f"   Preview: {snippet}...\n"
+            
+            response += "\n"
+        
+        if len(emails) > 5:
+            response += f"*...and {len(emails) - 5} more emails*\n"
+        
+        return response
+    
+    def _format_assignment_list(self, assignments: List[Dict]) -> str:
+        """Format assignment list"""
+        response = f"## 📚 Assignments ({len(assignments)})\n\n"
+        
+        for i, a in enumerate(assignments, 1):
+            title = a.get('title', 'Untitled')
+            course = a.get('course', 'Unknown Course')
+            due = a.get('due', 'No due date')
+            points = a.get('points', 0)
+            
+            response += f"**{i}. {title}**\n"
+            response += f"   📖 Course: {course}\n"
+            response += f"   📅 Due: {due}\n"
+            response += f"   ⭐ Points: {points}\n\n"
+        
+        return response
+    
+    def _format_summary(self, emails: List, assignments: List, meetings: List) -> str:
+        """Format overall summary"""
+        response = "## 📊 Today's Summary\n\n"
+        
+        response += f"**📧 Emails:** {len(emails)}\n"
+        if emails:
+            response += f"   Latest: *{emails[0].get('subject', 'No subject')}*\n\n"
+        
+        response += f"**📚 Assignments:** {len(assignments)}\n"
+        if assignments:
+            response += f"   Next due: *{assignments[0].get('title', 'Unknown')}*\n\n"
+        
+        response += f"**📅 Meetings:** {len(meetings)}\n"
+        if meetings:
+            response += f"   Next: *{meetings[0].get('title', 'Unknown')}*\n\n"
+        
+        response += "\n**Need details?** Ask me about emails, assignments, or your schedule!"
+        
+        return response

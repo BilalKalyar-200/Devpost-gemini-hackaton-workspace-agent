@@ -168,27 +168,27 @@ async def chat_with_agent(request: ChatRequest):
         snapshot = await agent.db.get_snapshot_by_date(date.today())
         has_data = snapshot is not None
         
-        # Generate suggestions
+        # Generate suggestions based on current context
         suggestions = []
         if has_data:
             observations = snapshot.get('observations', {})
             if observations.get('emails'):
-                suggestions.append("What emails need my attention?")
+                suggestions.append("Show me my emails")
+                suggestions.append("Any LinkedIn emails?")
             if observations.get('assignments'):
-                suggestions.append("What's due this week?")
+                suggestions.append("What assignments are due?")
             if observations.get('meetings'):
-                suggestions.append("What's my schedule today?")
+                suggestions.append("Tell me about my meetings")
         else:
             suggestions = [
                 "Generate my first report",
-                "What can you help me with?",
-                "How does this work?"
+                "What can you help me with?"
             ]
         
         return ChatResponse(
             response=response or "⚠️ Unable to process request. Please try again.",
             context_used=has_data,
-            sources=["Gmail", "Calendar"] if has_data else [],
+            sources=["Gmail", "Calendar", "Classroom"] if has_data else [],
             suggestions=suggestions[:3]
         )
         
@@ -197,40 +197,40 @@ async def chat_with_agent(request: ChatRequest):
 
 @router.get("/chat/history")
 async def get_chat_history():
-    """Get recent chat history"""
+    """Get recent chat history - FIXED"""
     try:
-        history = await agent.db.get_recent_chat_history(limit=50)
+        history_raw = await agent.db.get_recent_chat_history(limit=50)
         
-        # Format properly for frontend
-        formatted_history = []
-        for h in history:
-            # Each history item has user and agent in same object
-            if h.get('user'):
-                formatted_history.append({
+        # Properly format for frontend
+        messages = []
+        for item in history_raw:
+            # Each item has both user and agent
+            if item.get('user'):
+                messages.append({
                     "role": "user",
-                    "content": h['user'],
-                    "timestamp": h.get('timestamp', '')
+                    "content": item['user'],
+                    "timestamp": item.get('timestamp', datetime.now().isoformat())
                 })
-            if h.get('agent'):
-                formatted_history.append({
+            if item.get('agent'):
+                messages.append({
                     "role": "agent",
-                    "content": h['agent'],
-                    "timestamp": h.get('timestamp', '')
+                    "content": item['agent'],
+                    "timestamp": item.get('timestamp', datetime.now().isoformat())
                 })
         
-        return {"history": formatted_history}
+        return {"history": messages}
     
     except Exception as e:
         print(f"[API ERROR] Chat history: {e}")
-        # Return empty instead of crashing
         return {"history": []}
 
 # Helper functions
 def _calculate_days_until(due_date_str: str) -> int:
     """Calculate days until due date"""
     try:
-        due = datetime.fromisoformat(due_date_str.replace('Z', '+00:00'))
-        delta = due - datetime.now(due.tzinfo)
+        from dateutil import parser
+        due = parser.parse(due_date_str)
+        delta = due - datetime.now(due.tzinfo if due.tzinfo else None)
         return max(0, delta.days)
     except:
         return 999

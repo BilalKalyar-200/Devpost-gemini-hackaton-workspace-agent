@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { RefreshCw, Calendar, Mail, BookOpen, AlertCircle, CheckCircle, Clock } from 'lucide-react'
+import { RefreshCw, Calendar, Mail, BookOpen, AlertCircle, CheckCircle, Clock, X, ChevronRight } from 'lucide-react'
 import '../styles/Dashboard.css'
 
 const API_BASE = 'http://localhost:8000/api'
@@ -9,6 +9,7 @@ function Dashboard() {
   const [snapshot, setSnapshot] = useState(null)
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [selectedModal, setSelectedModal] = useState(null) // 'emails' | 'assignments' | 'meetings' | null
 
   useEffect(() => {
     fetchData()
@@ -38,7 +39,7 @@ function Dashboard() {
     setGenerating(true)
     try {
       await fetch(`${API_BASE}/eod-report/generate`, { method: 'POST' })
-      setTimeout(fetchData, 2000) // Refresh after generation
+      setTimeout(fetchData, 2000)
     } catch (error) {
       console.error('Error generating report:', error)
     } finally {
@@ -54,6 +55,14 @@ function Dashboard() {
       low: 'urgency-low'
     }
     return colors[urgency] || 'urgency-normal'
+  }
+
+  const openModal = (type) => {
+    setSelectedModal(type)
+  }
+
+  const closeModal = () => {
+    setSelectedModal(null)
   }
 
   return (
@@ -74,10 +83,14 @@ function Dashboard() {
         </button>
       </div>
 
-      {/* Stats Cards */}
+      {/* Stats Cards - NOW CLICKABLE */}
       {snapshot && (
         <div className="stats-grid">
-          <div className="stat-card">
+          <button 
+            className="stat-card clickable"
+            onClick={() => openModal('emails')}
+            disabled={!snapshot.emails || snapshot.emails.length === 0}
+          >
             <div className="stat-icon" style={{background: 'var(--primary-50)', color: 'var(--primary-600)'}}>
               <Mail size={24} />
             </div>
@@ -85,9 +98,16 @@ function Dashboard() {
               <div className="stat-value">{snapshot.emails?.length || 0}</div>
               <div className="stat-label">Unread Emails</div>
             </div>
-          </div>
+            {snapshot.emails?.length > 0 && (
+              <ChevronRight size={20} className="stat-arrow" />
+            )}
+          </button>
 
-          <div className="stat-card">
+          <button 
+            className="stat-card clickable"
+            onClick={() => openModal('assignments')}
+            disabled={!snapshot.assignments || snapshot.assignments.length === 0}
+          >
             <div className="stat-icon" style={{background: '#FEF3C7', color: '#F59E0B'}}>
               <BookOpen size={24} />
             </div>
@@ -95,9 +115,16 @@ function Dashboard() {
               <div className="stat-value">{snapshot.assignments?.length || 0}</div>
               <div className="stat-label">Assignments</div>
             </div>
-          </div>
+            {snapshot.assignments?.length > 0 && (
+              <ChevronRight size={20} className="stat-arrow" />
+            )}
+          </button>
 
-          <div className="stat-card">
+          <button 
+            className="stat-card clickable"
+            onClick={() => openModal('meetings')}
+            disabled={!snapshot.meetings || snapshot.meetings.length === 0}
+          >
             <div className="stat-icon" style={{background: '#DBEAFE', color: '#3B82F6'}}>
               <Calendar size={24} />
             </div>
@@ -105,7 +132,10 @@ function Dashboard() {
               <div className="stat-value">{snapshot.meetings?.length || 0}</div>
               <div className="stat-label">Meetings Today</div>
             </div>
-          </div>
+            {snapshot.meetings?.length > 0 && (
+              <ChevronRight size={20} className="stat-arrow" />
+            )}
+          </button>
 
           <div className="stat-card highlight">
             <div className="stat-icon" style={{background: '#FEE2E2', color: '#EF4444'}}>
@@ -150,7 +180,7 @@ function Dashboard() {
               )}
 
               <div className="report-content">
-                {report.content}
+                {formatReportContent(report.content)}
               </div>
 
               {report.stats && (
@@ -252,8 +282,99 @@ function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* MODAL FOR DETAILED VIEW */}
+      {selectedModal && (
+        <div className="modal-overlay" onClick={closeModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>
+                {selectedModal === 'emails' && <><Mail size={24} /> All Emails</>}
+                {selectedModal === 'assignments' && <><BookOpen size={24} /> All Assignments</>}
+                {selectedModal === 'meetings' && <><Calendar size={24} /> All Meetings</>}
+              </h2>
+              <button className="modal-close" onClick={closeModal}>
+                <X size={24} />
+              </button>
+            </div>
+            <div className="modal-body">
+              {selectedModal === 'emails' && snapshot?.emails && (
+                <div className="detail-list">
+                  {snapshot.emails.map((email, idx) => (
+                    <div key={idx} className="detail-item">
+                      <div className="detail-item-header">
+                        <h4>{email.subject}</h4>
+                        <span className={`urgency-badge ${getUrgencyColor(email.urgency)}`}>
+                          {email.urgency}
+                        </span>
+                      </div>
+                      <p className="detail-meta">From: {email.sender}</p>
+                      <p className="detail-snippet">{email.snippet}</p>
+                      <p className="detail-time">{new Date(email.received).toLocaleString()}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {selectedModal === 'assignments' && snapshot?.assignments && (
+                <div className="detail-list">
+                  {snapshot.assignments.map((assignment, idx) => (
+                    <div key={idx} className="detail-item">
+                      <div className="detail-item-header">
+                        <h4>{assignment.title}</h4>
+                        <span className={`urgency-badge ${getUrgencyColor(assignment.urgency)}`}>
+                          Due in {assignment.days_until_due} days
+                        </span>
+                      </div>
+                      <p className="detail-meta">Course: {assignment.course}</p>
+                      <p className="detail-meta">Points: {assignment.points}</p>
+                      <p className="detail-time">Due: {new Date(assignment.due_date).toLocaleString()}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {selectedModal === 'meetings' && snapshot?.meetings && (
+                <div className="detail-list">
+                  {snapshot.meetings.map((meeting, idx) => (
+                    <div key={idx} className="detail-item">
+                      <h4>{meeting.title}</h4>
+                      <p className="detail-meta">
+                        {new Date(meeting.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      </p>
+                      <p className="detail-meta">Duration: {meeting.duration_minutes} minutes</p>
+                      <p className="detail-meta">Attendees: {meeting.attendees_count}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+// Helper function to format report content
+function formatReportContent(content) {
+  const lines = content.split('\n')
+  return lines.map((line, i) => {
+    // Headers
+    if (line.startsWith('## ')) {
+      return <h3 key={i} className="report-heading">{line.slice(3)}</h3>
+    }
+    
+    // Bold
+    let formatted = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    
+    // Empty lines
+    if (!formatted.trim()) {
+      return <br key={i} />
+    }
+    
+    return <p key={i} dangerouslySetInnerHTML={{ __html: formatted }} />
+  })
 }
 
 export default Dashboard
