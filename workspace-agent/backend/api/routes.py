@@ -160,40 +160,48 @@ async def trigger_eod_report():
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_agent(request: ChatRequest):
-    """Enhanced chat with context and suggestions"""
     try:
-        response = await agent.chat(request.query)
-        
-        # Check if we have data
+        query = request.query.lower()
         snapshot = await agent.db.get_snapshot_by_date(date.today())
-        has_data = snapshot is not None
-        
-        # Generate suggestions based on current context
-        suggestions = []
-        if has_data:
-            observations = snapshot.get('observations', {})
-            if observations.get('emails'):
-                suggestions.append("Show me my emails")
-                suggestions.append("Any LinkedIn emails?")
-            if observations.get('assignments'):
-                suggestions.append("What assignments are due?")
-            if observations.get('meetings'):
-                suggestions.append("Tell me about my meetings")
+
+        # ----- INTENT ROUTING -----
+        if any(word in query for word in ["email", "mail", "inbox"]):
+            response = await agent.handle_email_query(query, snapshot)
+
+        elif any(word in query for word in ["meeting", "calendar", "schedule"]):
+            response = await agent.handle_meeting_query(query, snapshot)
+
+        elif any(word in query for word in ["assignment", "due", "class", "homework"]):
+            response = await agent.handle_assignment_query(query, snapshot)
+
         else:
-            suggestions = [
-                "Generate my first report",
-                "What can you help me with?"
-            ]
-        
+            # Use the existing chat method which has Gemini + fallback logic
+            try:
+                response = await agent.chat(query)
+            except Exception as e:
+                print(f"[AGENT] Chat method failed: {e}")
+                response = "I'm having trouble processing your request. Try asking about your emails, meetings, or assignments."
+
         return ChatResponse(
-            response=response or "⚠️ Unable to process request. Please try again.",
-            context_used=has_data,
-            sources=["Gmail", "Calendar", "Classroom"] if has_data else [],
-            suggestions=suggestions[:3]
+            response=response,
+            context_used=snapshot is not None,
+            sources=["Gmail", "Calendar", "Classroom"] if snapshot else [],
+            suggestions=[]
         )
-        
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[API ERROR] /chat: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Return a user-friendly error instead of 500
+        return ChatResponse(
+            response="I encountered an error processing your request. Please try again or rephrase your question.",
+            context_used=False,
+            sources=[],
+            suggestions=["Show my emails", "Any meetings today?", "What's due this week?"]
+        )
+
 
 @router.get("/chat/history")
 async def get_chat_history():
@@ -226,14 +234,37 @@ async def get_chat_history():
 
 # Helper functions
 def _calculate_days_until(due_date_str: str) -> int:
-    """Calculate days until due date"""
+    """Calculate days until due date - FIXED VERSION"""
+    if not due_date_str:
+        return 999
+    
     try:
+        # Try parsing ISO format first
         from dateutil import parser
         due = parser.parse(due_date_str)
-        delta = due - datetime.now(due.tzinfo if due.tzinfo else None)
-        return max(0, delta.days)
-    except:
-        return 999
+        
+        # Make timezone-aware if needed
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        
+        # If due date has timezone info, use it; otherwise assume UTC
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=timezone.utc)
+        
+        delta = due - now
+        return delta.days
+        
+    except Exception as e:
+        print(f"[ROUTES] Date parse error for '{due_date_str}': {e}")
+        # Try alternative format
+        try:
+            # Handle format like "2026-02-09 18:59"
+            from datetime import datetime as dt
+            due = dt.strptime(due_date_str.split('+')[0].strip(), '%Y-%m-%d %H:%M')
+            delta = due - dt.now()
+            return delta.days
+        except:
+            return 999
 
 def _calculate_urgency_from_due(due_date_str: str) -> str:
     """Calculate urgency level from due date"""

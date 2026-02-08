@@ -11,33 +11,54 @@ class AgentScheduler:
     def __init__(self, agent: WorkspaceAgent):
         self.agent = agent
         self.scheduler = AsyncIOScheduler()
+        self.eod_hour = config.EOD_REPORT_HOUR
+        self.eod_minute = config.EOD_REPORT_MINUTE
         print("[SCHEDULER] Initialized")
     
     def start(self):
-        """Start the scheduler"""
-        # EOD report daily at configured time
+        """Start scheduler with multiple jobs"""
+        # EOD report at configured time (default 6 PM)
         self.scheduler.add_job(
-            self.agent.autonomous_observation_cycle,
-            trigger=CronTrigger(
-                hour=config.EOD_REPORT_HOUR,
-                minute=config.EOD_REPORT_MINUTE
-            ),
-            id="eod_report",
-            name="Daily EOD Report",
-            replace_existing=True
+            self._trigger_eod_report,
+            trigger=CronTrigger(hour=self.eod_hour, minute=self.eod_minute),
+            id='eod_report',
+            name='Daily EOD Report'
         )
         
-        # For testing: run every 5 minutes (comment out for production)
-        # self.scheduler.add_job(
-        #     self.agent.autonomous_observation_cycle,
-        #     trigger=CronTrigger(minute="*/5"),
-        #     id="test_run",
-        #     name="Test Run (Every 5 min)",
-        #     replace_existing=True
-        # )
+        # Data refresh every 30 minutes
+        self.scheduler.add_job(
+            self._refresh_data,
+            trigger='interval',
+            minutes=30,
+            id='data_refresh',
+            name='Data Refresh'
+        )
         
         self.scheduler.start()
-        print(f"[SCHEDULER] Started! EOD report will run daily at {config.EOD_REPORT_HOUR}:{config.EOD_REPORT_MINUTE:02d}")
+        print(f"[SCHEDULER] Started! EOD at {self.eod_hour}:{self.eod_minute:02d}, Data refresh every 30min")
+    
+    async def _trigger_eod_report(self):
+        """Run the EOD report generation"""
+        print("[SCHEDULER] Running scheduled EOD report...")
+        try:
+            await self.agent.autonomous_observation_cycle()
+            print("[SCHEDULER] EOD report completed successfully")
+        except Exception as e:
+            print(f"[SCHEDULER ERROR] EOD report failed: {e}")
+    
+    async def _refresh_data(self):
+        """Background data refresh"""
+        print("[SCHEDULER] Refreshing workspace data...")
+        try:
+            observations = await self.agent._observe_workspace()
+            
+            # Store the refreshed data
+            insights = await self.agent._reason_over_observations(observations)
+            await self.agent._store_observations_and_insights(observations, insights)
+            
+            print("[SCHEDULER] Data refreshed successfully")
+        except Exception as e:
+            print(f"[SCHEDULER ERROR] Data refresh failed: {e}")
     
     def stop(self):
         """Stop the scheduler"""

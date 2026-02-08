@@ -21,7 +21,14 @@ class WorkspaceAgent:
         calendar: CalendarConnector,
         gemini: GeminiClient,
         db: DatabaseManager
+        
+        
     ):
+        self.session_memory = {
+            "last_emails": [],
+            "last_meetings": [],
+            "last_assignments": []
+        }
         self.gmail = gmail
         self.classroom = classroom
         self.calendar = calendar
@@ -30,7 +37,133 @@ class WorkspaceAgent:
         self.prompts = PromptTemplates()
         self._last_context = None  # Track last mentioned context for follow-ups
         logger.success("Agent initialized successfully")
-    
+
+    async def handle_email_query(self, query: str, snapshot: Dict) -> str:
+        """Handle email-specific queries"""
+        if not snapshot:
+            return "📧 **No email data available.**\n\nTry generating a report first to collect your emails."
+        
+        observations = snapshot.get('observations', {})
+        emails = observations.get('emails', [])
+        
+        if not emails:
+            return "📧 **No emails found.**\n\nYour inbox appears to be clear!"
+        
+        query_lower = query.lower()
+        
+        # Store emails in session memory
+        self.session_memory["last_emails"] = emails
+        
+        # Check for LinkedIn specific queries
+        if 'linkedin' in query_lower or 'linked' in query_lower:
+            linkedin_emails = [e for e in emails if 'linkedin' in e.get('sender', '').lower()]
+            if linkedin_emails:
+                return self._format_email_list(linkedin_emails, detailed=True)
+            return "📧 **No LinkedIn emails found.**"
+        
+        # Check for sender-specific queries
+        if 'from' in query_lower:
+            return self._handle_sender_search(query, emails)
+        
+        # Check for urgency queries
+        if any(word in query_lower for word in ['urgent', 'important', 'priority', 'unread']):
+            urgent_emails = [e for e in emails if e.get('is_unread') or 
+                            any(uw in e.get('subject', '').lower() 
+                                for uw in ['urgent', 'important', 'asap'])]
+            if urgent_emails:
+                return self._format_email_list(urgent_emails, detailed=True)
+            return f"📧 **All {len(emails)} emails shown.**\n\n" + self._format_email_list(emails[:5], detailed=True)
+        
+        # Check for "latest" or "last" queries
+        if any(word in query_lower for word in ['latest', 'last', 'recent', 'newest']):
+            return self._format_email_details(emails[0])
+        
+        # Default: show email list
+        return self._format_email_list(emails[:5], detailed=True)
+
+
+    async def handle_meeting_query(self, query: str, snapshot: Dict) -> str:
+        """Handle meeting/calendar-specific queries"""
+        if not snapshot:
+            return "📅 **No calendar data available.**\n\nTry generating a report first to sync your calendar."
+        
+        observations = snapshot.get('observations', {})
+        meetings = observations.get('meetings', [])
+        
+        if not meetings:
+            return "📅 **No meetings scheduled for today.**\n\nYour calendar is clear!"
+        
+        query_lower = query.lower()
+        
+        # Store meetings in session memory
+        self.session_memory["last_meetings"] = meetings
+        
+        # Check for specific meeting details
+        if any(word in query_lower for word in ['detail', 'about', 'info', 'tell me']):
+            return self._format_meeting_details(meetings[0])
+        
+        # Check for time-specific queries
+        if any(word in query_lower for word in ['next', 'upcoming', 'soon']):
+            return self._format_meeting_details(meetings[0])
+        
+        # Check for "latest" or "last"
+        if any(word in query_lower for word in ['latest', 'last', 'recent']):
+            return self._format_meeting_details(meetings[0])
+        
+        # Default: show meeting list
+        return self._format_meeting_list(meetings)
+
+
+    async def handle_assignment_query(self, query: str, snapshot: Dict) -> str:
+        """Handle assignment/classroom-specific queries"""
+        if not snapshot:
+            return "📚 **No assignment data available.**\n\nTry generating a report first to sync your classroom."
+        
+        observations = snapshot.get('observations', {})
+        assignments = observations.get('assignments', [])
+        
+        if not assignments:
+            return "📚 **No assignments due.**\n\nYou're all caught up with coursework!"
+        
+        query_lower = query.lower()
+        
+        # Store assignments in session memory
+        self.session_memory["last_assignments"] = assignments
+        
+        # Check for GCR/classroom queries
+        if any(word in query_lower for word in ['gcr', 'classroom', 'joined', 'classes']):
+            # Get unique courses
+            courses = list(set([a.get('course', 'Unknown') for a in assignments]))
+            if courses:
+                response = f"📚 **Your Google Classrooms ({len(courses)}):**\n\n"
+                for i, course in enumerate(courses, 1):
+                    course_assignments = [a for a in assignments if a.get('course') == course]
+                    response += f"{i}. **{course}**\n"
+                    response += f"   📝 {len(course_assignments)} assignment(s)\n\n"
+                return response
+            return "📚 **No classrooms found.**"
+        
+        # Check for urgency/due date queries
+        if any(word in query_lower for word in ['urgent', 'soon', 'today', 'tomorrow']):
+            # Sort by due date
+            urgent_assignments = [a for a in assignments 
+                                if self._calculate_days_until(a.get('due', '')) <= 2]
+            if urgent_assignments:
+                return self._format_assignment_list(urgent_assignments)
+            return "📚 **No urgent assignments.**\n\nNothing due in the next 2 days."
+        
+        # Check for specific course
+        if any(word in query_lower for word in ['course', 'class', 'subject']):
+            # Try to extract course name from query
+            for assignment in assignments:
+                course = assignment.get('course', '').lower()
+                if course and course in query_lower:
+                    course_assignments = [a for a in assignments if a.get('course') == assignment.get('course')]
+                    return self._format_assignment_list(course_assignments)
+            return self._format_assignment_list(assignments)
+        
+        # Default: show all assignments
+        return self._format_assignment_list(assignments)
     async def autonomous_observation_cycle(self):
         """Main autonomous loop - runs daily"""
         logger.header("🤖 AUTONOMOUS OBSERVATION CYCLE")
@@ -91,7 +224,7 @@ class WorkspaceAgent:
         
         # Fetch assignments
         try:
-            assignments = await self.classroom.get_upcoming_assignments(days_ahead=7)
+            assignments = await self.classroom.get_upcoming_assignments(days_ahead=30, include_past=True)
             observations["assignments"] = [a.to_dict() for a in assignments]
             logger.data("Assignments", len(assignments))
         except Exception as e:
@@ -233,64 +366,69 @@ class WorkspaceAgent:
         report += "\n\n✅ All systems operational. Data collection successful."
         
         return report
-    
+    def _resolve_using_session_memory(self, query: str) -> Optional[str]:
+        """Resolve follow-up using structured memory"""
+        
+        query_lower = query.lower()
+        
+        # Meeting follow-ups
+        if any(word in query_lower for word in ["meeting", "that", "it", "event"]):
+            meetings = self.session_memory.get("last_meetings", [])
+            if meetings:
+                return self._format_meeting_details(meetings[0])
+        
+        # Email follow-ups
+        if any(word in query_lower for word in ["email", "mail", "those", "them"]):
+            emails = self.session_memory.get("last_emails", [])
+            if emails:
+                return self._format_email_list(emails[:5], detailed=True)
+        
+        # Assignment follow-ups
+        if any(word in query_lower for word in ["assignment", "homework", "due"]):
+            assignments = self.session_memory.get("last_assignments", [])
+            if assignments:
+                return self._format_assignment_list(assignments)
+        
+        return None
+
     async def chat(self, user_query: str) -> str:
         """INTELLIGENT CHAT WITH CONTEXT AND ENTITY RESOLUTION"""
         logger.info(f'User asked: "{user_query}"')
-        
+
         # Get full context
         today_snapshot = await self.db.get_snapshot_by_date(date.today())
         past_summaries = await self.db.get_recent_summaries(days=3)
         chat_history = await self.db.get_recent_chat_history(limit=10)
-        
-        # Extract observations
-        observations = today_snapshot.get('observations', {}) if today_snapshot else {}
-        emails = observations.get('emails', [])
-        assignments = observations.get('assignments', [])
-        meetings = observations.get('meetings', [])
-        
-        # STEP 1: Detect intent and entities
-        intent = self._detect_intent(user_query, chat_history)
-        entities = self._extract_entities(user_query, emails, assignments, meetings)
-        
-        logger.info(f"Detected intent: {intent}, entities: {list(entities.keys())}")
-        
-        # STEP 2: Generate intelligent response
-        response = None
-        
-        # Handle specific intents first
-        if intent == 'last_item':
-            response = self._handle_last_item_query(user_query, emails, assignments, meetings)
-        elif intent == 'follow_up':
-            response = self._handle_follow_up(user_query, chat_history, entities, observations)
-        elif intent == 'detail_request' and entities:
-            response = self._handle_detail_request(entities, observations)
-        elif intent == 'search_by_sender':
-            response = self._handle_sender_search(user_query, emails)
-        
-        # If no response yet, try Gemini or fallback
-        if not response:
-            context = {
-                "user_query": user_query,
-                "today_snapshot": today_snapshot,
-                "past_summaries": past_summaries,
-                "chat_history": chat_history
-            }
-            
-            system_prompt = self.prompts.get_system_prompt()
-            prompt = self.prompts.chat_prompt(context)
-            
-            response = await self.gemini.generate(prompt, system_prompt)
-            
-            # Fallback to intelligent rule-based
-            if not response or getattr(self.gemini, 'quota_exceeded', False):
-                response = self._intelligent_fallback(user_query, intent, entities, observations)
-        
-        # Store conversation and update last context
-        await self.db.store_chat_turn(user_query, response)
-        self._update_last_context(response, entities, observations)
-        
-        return response
+
+        # ⭐ ADD REPETITION DETECTION HERE
+        if chat_history:
+            last_5_questions = [h.get('user', '').lower() for h in chat_history[-5:]]
+            query_lower = user_query.lower()
+
+            similarity_count = sum(
+                1 for q in last_5_questions
+                if self._is_similar_query(query_lower, q)
+            )
+
+            if similarity_count >= 2:
+                response = """I notice you've asked about this a few times. Let me try to help differently:
+
+    **What I can access:**
+    ✅ Gmail (unread emails)
+    ✅ Google Calendar (today's meetings)
+    ✅ Google Classroom (if you're enrolled)
+
+    **What might be wrong:**
+    ❓ No classrooms joined → I can't see any
+    ❓ No meetings today → Calendar is clear
+    ❓ Need to refresh data → Click "Generate Report"
+
+    **How can I help you specifically?**"""
+
+                await self.db.store_chat_turn(user_query, response)
+                return response
+
+
     
     def _update_last_context(self, response: str, entities: Dict, observations: Dict):
         """Track what was last mentioned for better follow-up handling"""
@@ -739,3 +877,18 @@ class WorkspaceAgent:
         response += "\n**Need details?** Ask me about emails, assignments, or your schedule!"
         
         return response
+        
+    def _is_similar_query(self, q1: str, q2: str) -> bool:
+        """Check if two queries are similar"""
+        q1_words = set(q1.split())
+        q2_words = set(q2.split())
+        
+        # Jaccard similarity
+        intersection = q1_words & q2_words
+        union = q1_words | q2_words
+        
+        if not union:
+            return False
+        
+        similarity = len(intersection) / len(union)
+        return similarity > 0.6  # 60% word overlap = similar

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import Dashboard from './components/Dashboard'
 import ChatInterface from './components/ChatInterface'
+import { ChatProvider } from './context/ChatContext'
 import './App.css'
 
 function App() {
@@ -16,27 +17,29 @@ function App() {
   }, [])
 
   return (
-    <BrowserRouter>
-      <div className="app">
-        <nav className="navbar">
-          <h1>🤖 Workspace Agent</h1>
-          <div className="nav-links">
-            <Link to="/">Dashboard</Link>
-            <Link to="/chat">Chat</Link>
-          </div>
-          {health && (
-            <div className="health-status">
-              Status: {health.status}
+    <ChatProvider>
+      <BrowserRouter>
+        <div className="app">
+          <nav className="navbar">
+            <h1>🤖 Workspace Agent</h1>
+            <div className="nav-links">
+              <Link to="/">Dashboard</Link>
+              <Link to="/chat">Chat</Link>
             </div>
-          )}
-        </nav>
+            {health && (
+              <div className="health-status">
+                Status: {health.status}
+              </div>
+            )}
+          </nav>
 
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/chat" element={<ChatInterface />} />
-        </Routes>
-      </div>
-    </BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/chat" element={<ChatInterface />} />
+          </Routes>
+        </div>
+      </BrowserRouter>
+    </ChatProvider>
   )
 }
 

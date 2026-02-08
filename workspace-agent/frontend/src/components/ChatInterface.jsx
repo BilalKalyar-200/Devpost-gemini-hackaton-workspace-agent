@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { Send, Loader2, Sparkles, Mail, Calendar, BookOpen } from 'lucide-react'
 import '../styles/Chat.css'
+import { useChat } from '../context/ChatContext'
 
 const API_BASE = 'http://localhost:8000/api'
 
 function ChatInterface() {
-  const [messages, setMessages] = useState([])
+  const {messages, setMessages } = useChat()
+  // const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [suggestions, setSuggestions] = useState([])
@@ -25,12 +27,14 @@ function ChatInterface() {
   }, [])
 
   const loadChatHistory = async () => {
-    try {
+    try{
       const res = await fetch(`${API_BASE}/chat/history`)
       const data = await res.json()
-      
       if (data.history && data.history.length > 0) {
-        setMessages(data.history)
+        const sorted = data.history.sort((a, b) => 
+          new Date(a.timestamp) - new Date(b.timestamp)
+        )
+        setMessages(sorted)
       } else {
         // Show welcome message
         setMessages([{

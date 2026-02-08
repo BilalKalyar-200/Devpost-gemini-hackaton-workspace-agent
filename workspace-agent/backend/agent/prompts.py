@@ -3,10 +3,57 @@ from typing import Dict, List
 from datetime import datetime
 
 class PromptTemplates:
-    
+
     @staticmethod
-    def get_system_prompt() -> str:
-        return """You are an intelligent personal assistant helping a busy professional manage their workspace.
+    def chat_prompt(context: Dict) -> str:
+        """Generate chat prompt WITH conversation history"""
+        user_query = context.get('user_query', '')
+        today = context.get('today_snapshot', {})
+        summaries = context.get('past_summaries', [])
+        history = context.get('chat_history', [])
+
+        # Extract actual data
+        observations = today.get('observations', {}) if today else {}
+        emails = observations.get('emails', [])
+        assignments = observations.get('assignments', [])
+        meetings = observations.get('meetings', [])
+
+        # BUILD CONVERSATION HISTORY
+        conversation_context = ""
+        if history:
+            conversation_context = "\n**PREVIOUS CONVERSATION:**\n"
+            for i, msg in enumerate(history[-5:]):  # Last 5 messages
+                user_msg = msg.get('user', '')
+                agent_msg = msg.get('agent', '')
+                if user_msg:
+                    conversation_context += f"User: {user_msg}\n"
+                if agent_msg:
+                    conversation_context += f"Assistant: {agent_msg[:200]}...\n"
+            conversation_context += "\n"
+
+        return f"""You are a helpful workspace assistant. Answer the user's question using their data and conversation history.
+
+{conversation_context}
+
+**CURRENT QUESTION:**
+"{user_query}"
+
+**TODAY'S DATA:**
+Emails ({len(emails)}):
+{json.dumps(emails[:5], indent=2) if emails else "No emails"}
+
+Assignments ({len(assignments)}):
+{json.dumps(assignments, indent=2) if assignments else "No assignments"}
+
+Meetings ({len(meetings)}):
+{json.dumps(meetings, indent=2) if meetings else "No meetings"}
+
+**INSTRUCTIONS:**
+1. If this is a follow-up question (uses "that", "it", "them"), refer to the previous conversation
+2. Answer concisely (under 150 words)
+3. Reference specific items by name/subject/title
+4. If asking about something not in the data, say "I don't have that information" and suggest what you CAN help with
+5. Use markdown formatting (**, ##) for readability
 
 Your role:
 - Analyze emails, assignments, and meetings
@@ -15,23 +62,21 @@ Your role:
 - Be concise but thorough
 - Use a friendly, professional tone
 
-Current date: {date}
+Current date: {datetime.now().strftime("%B %d, %Y")}
 
-Remember: The user trusts you to help them stay organized and productive.""".format(
-            date=datetime.now().strftime("%B %d, %Y")
-        )
-    
+Remember: The user trusts you to help them stay organized and productive."""
+
     @staticmethod
     def urgency_analysis_prompt(observations: Dict) -> str:
         email_count = len(observations.get('emails', []))
         assignment_count = len(observations.get('assignments', []))
         meeting_count = len(observations.get('meetings', []))
-        
+
         return f"""Analyze this workspace data and categorize items by urgency.
 
 **DATA SUMMARY:**
 - {email_count} emails
-- {assignment_count} assignments  
+- {assignment_count} assignments
 - {meeting_count} meetings
 
 **EMAILS:**
@@ -81,17 +126,17 @@ Criteria:
 - URGENT: Due today/tomorrow, critical emails, imminent deadlines
 - IMPORTANT: Due this week, professional contacts, scheduled meetings
 - LOW PRIORITY: Social media, newsletters, distant deadlines"""
-    
+
     @staticmethod
     def eod_summary_prompt(insights: Dict, past_summaries: List[Dict]) -> str:
         analysis = insights.get('analysis', {})
         counts = insights.get('counts', {})
-        
+
         past_context = "\n".join([
             f"- {s['date']}: {s['content'][:100]}..."
             for s in past_summaries[:3]
         ]) if past_summaries else "No previous summaries"
-        
+
         return f"""Generate a professional End-of-Day summary for the user.
 
 **TODAY'S ANALYSIS:**
@@ -116,48 +161,28 @@ Write a concise, actionable End-of-Day summary (150-200 words) following this st
 Tone: Professional but warm, like a helpful colleague.
 Style: Use "you" and "your". Be specific (mention actual emails/assignments by name).
 Focus: Action-oriented, not just reporting data."""
-    
+
     @staticmethod
-    def chat_prompt(context: Dict) -> str:
-        user_query = context.get('user_query', '')
-        today = context.get('today_snapshot', {})
-        summaries = context.get('past_summaries', [])
-        history = context.get('chat_history', [])
-        
-        # Extract actual data
-        observations = today.get('observations', {}) if today else {}
-        emails = observations.get('emails', [])
-        assignments = observations.get('assignments', [])
-        meetings = observations.get('meetings', [])
-        
-        return f"""Answer the user's question using their workspace data.
+    def get_system_prompt() -> str:
+        return """You are an intelligent personal workspace assistant with conversational memory.
 
-**USER QUESTION:**
-"{user_query}"
+**YOUR CAPABILITIES:**
+- Access to user's Gmail, Google Calendar, Google Classroom
+- Remember previous conversation turns
+- Detect follow-up questions
+- Admit when you don't have data
 
-**TODAY'S DATA:**
-Emails ({len(emails)}):
-{json.dumps(emails[:5], indent=2)}
+**CONVERSATION RULES:**
+1. **Check conversation history first** - If user asks "tell me more about that", refer to what you just mentioned
+2. **Be specific** - Don't say "you have emails", say "you have 3 emails from LinkedIn"
+3. **Admit limitations** - If no data: "I don't see any [X] in your workspace right now. Try refreshing or check if you've joined any classrooms."
+4. **Suggest actions** - "Would you like me to show you the email details?" or "Should I list all your meetings?"
+5. **Detect repetition** - If user asks same thing twice, say "I already mentioned [X]. Would you like different information?"
+6. **Format nicely** - Use markdown: **bold**, ## headers, bullet points
 
-Assignments ({len(assignments)}):
-{json.dumps(assignments, indent=2)}
+**CURRENT DATE:** {date}
 
-Meetings ({len(meetings)}):
-{json.dumps(meetings, indent=2)}
-
-**RECENT SUMMARIES:**
-{json.dumps(summaries[:2], indent=2)}
-
-**RECENT CONVERSATION:**
-{json.dumps(history, indent=2)}
-
-**YOUR TASK:**
-1. Answer the question directly and concisely
-2. Reference specific items from their data
-3. Provide actionable insights
-4. Keep it under 100 words
-5. Be conversational and helpful
-
-If the question is about specific emails/assignments/meetings, list them with details.
-If asking for recommendations, prioritize by urgency.
-If the data doesn't contain relevant info, say so politely and suggest what you CAN help with."""
+**YOUR PERSONALITY:**
+Helpful, concise, proactive. Think like a smart assistant, not a search engine.""".format(
+            date=datetime.now().strftime("%B %d, %Y")
+        )

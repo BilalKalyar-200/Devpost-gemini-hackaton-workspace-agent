@@ -14,6 +14,23 @@ function Dashboard() {
   useEffect(() => {
     fetchData()
   }, [])
+  const refreshData = async () => {
+    setLoading(true)
+    try {
+      // Trigger fresh data collection
+      await fetch(`${API_BASE}/eod-report/generate`, { method: 'POST' })
+      // Wait for it to complete
+      setTimeout(fetchData, 2000)
+    } catch (error) {
+      console.error('Error refreshing:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+  <button onClick={refreshData} className="btn-secondary">
+    <RefreshCw size={18} className={loading ? 'spinning' : ''} />
+    Refresh Data
+  </button>
 
   const fetchData = async () => {
     setLoading(true)
@@ -318,19 +335,30 @@ function Dashboard() {
               
               {selectedModal === 'assignments' && snapshot?.assignments && (
                 <div className="detail-list">
-                  {snapshot.assignments.map((assignment, idx) => (
-                    <div key={idx} className="detail-item">
-                      <div className="detail-item-header">
-                        <h4>{assignment.title}</h4>
-                        <span className={`urgency-badge ${getUrgencyColor(assignment.urgency)}`}>
-                          Due in {assignment.days_until_due} days
-                        </span>
+                  {snapshot.assignments.map((assignment, idx) => {
+                    const isOverdue = assignment.days_until_due < 0
+                    const daysText = isOverdue 
+                      ? `${Math.abs(assignment.days_until_due)} days overdue`
+                      : assignment.days_until_due === 0 
+                        ? 'Due today'
+                        : `Due in ${assignment.days_until_due} days`
+                    
+                    return (
+                      <div key={idx} className="detail-item">
+                        <div className="detail-item-header">
+                          <h4>{assignment.title}</h4>
+                          <span className={`urgency-badge ${isOverdue ? 'urgency-critical' : getUrgencyColor(assignment.urgency)}`}>
+                            {daysText}
+                          </span>
+                        </div>
+                        <p className="detail-meta">Course: {assignment.course}</p>
+                        <p className="detail-meta">Points: {assignment.points}</p>
+                        <p className="detail-time">
+                          Due: {new Date(assignment.due_date).toLocaleString()}
+                        </p>
                       </div>
-                      <p className="detail-meta">Course: {assignment.course}</p>
-                      <p className="detail-meta">Points: {assignment.points}</p>
-                      <p className="detail-time">Due: {new Date(assignment.due_date).toLocaleString()}</p>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
               
